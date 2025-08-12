@@ -1,0 +1,3 @@
+-keep class com.marianhello.** { *; }
+-keep class com.google.android.gms.location.** { *; }
+-dontwarn com.marianhello.**

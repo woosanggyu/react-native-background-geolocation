@@ -167,6 +167,19 @@ public class LocationServiceImpl extends Service implements ProviderDelegate, Lo
     public void onCreate() {
         super.onCreate();
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager mgr = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            String channelId = "bg-geo";
+            if (mgr.getNotificationChannel(channelId) == null) {
+                NotificationChannel channel = new NotificationChannel(
+                    channelId,
+                    "Background Geolocation",
+                    NotificationManager.IMPORTANCE_LOW
+                );
+                mgr.createNotificationChannel(channel);
+            }
+        }
+
         sIsRunning = false;
 
         UncaughtExceptionLogger.register(this);
@@ -403,12 +416,30 @@ public class LocationServiceImpl extends Service implements ProviderDelegate, Lo
     public void startForeground() {
         if (sIsRunning && !mIsInForeground) {
             Config config = getConfig();
+
+            // API 26+ Notification Channel 생성
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationManager mgr = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                String channelId = "bg-geo";
+                if (mgr.getNotificationChannel(channelId) == null) {
+                    NotificationChannel channel = new NotificationChannel(
+                        channelId,
+                        "Background Geolocation",
+                        NotificationManager.IMPORTANCE_LOW
+                    );
+                    mgr.createNotificationChannel(channel);
+                }
+            }
+
+            // 기존 Notification 생성 → channelId 추가
             Notification notification = new NotificationHelper.NotificationFactory(this).getNotification(
                     config.getNotificationTitle(),
                     config.getNotificationText(),
                     config.getLargeNotificationIcon(),
                     config.getSmallNotificationIcon(),
-                    config.getNotificationIconColor());
+                    config.getNotificationIconColor(),
+                    "bg-geo" // ★ channelId 전달
+            );
 
             if (mProvider != null) {
                 mProvider.onCommand(LocationProvider.CMD_SWITCH_MODE,
