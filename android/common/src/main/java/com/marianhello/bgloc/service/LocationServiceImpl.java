@@ -417,38 +417,80 @@ public class LocationServiceImpl extends Service implements ProviderDelegate, Lo
         if (sIsRunning && !mIsInForeground) {
             Config config = getConfig();
 
-            // API 26+ Notification Channel 생성
+            // 1) API 26+ 채널 보장
+            final String CHANNEL_ID = "bg-geo";
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 NotificationManager mgr = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                String channelId = "bg-geo";
-                if (mgr.getNotificationChannel(channelId) == null) {
+                if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
                     NotificationChannel channel = new NotificationChannel(
-                        channelId,
-                        "Background Geolocation",
-                        NotificationManager.IMPORTANCE_LOW
+                            CHANNEL_ID,
+                            "Background Geolocation",
+                            NotificationManager.IMPORTANCE_LOW
                     );
+                    channel.enableVibration(false);
+                    channel.setSound(null, null);
                     mgr.createNotificationChannel(channel);
                 }
             }
 
-            // 기존 Notification 생성 → channelId 추가
-            Notification notification = new NotificationHelper.NotificationFactory(this).getNotification(
-                    config.getNotificationTitle(),
-                    config.getNotificationText(),
-                    config.getLargeNotificationIcon(),
-                    config.getSmallNotificationIcon(),
-                    config.getNotificationIconColor(),
-                    "bg-geo" // ★ channelId 전달
-            );
+            // 2) 알림 탭 시 앱 열기
+            Intent launchIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            PendingIntent contentIntent = null;
+            if (launchIntent != null) {
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    flags |= PendingIntent.FLAG_IMMUTABLE;
+                }
+                contentIntent = PendingIntent.getActivity(this, 0, launchIntent, flags);
+            }
+
+            // 3) 작은/큰 아이콘 리졸브 (없으면 앱 아이콘/기본 아이콘 사용)
+            int smallIconRes = resolveDrawable(config.getSmallNotificationIcon(), "ic_stat_name");
+            int largeIconRes = resolveDrawable(config.getLargeNotificationIcon(), null);
+
+            // 4) 알림 빌드
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setContentTitle(safe(config.getNotificationTitle(), "위치 추적 중"))
+                    .setContentText(safe(config.getNotificationText(), "백그라운드에서 실행됩니다"))
+                    .setOngoing(true)
+                    .setOnlyAlertOnce(true)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .setSmallIcon(smallIconRes);
+
+            if (largeIconRes != 0) {
+                builder.setLargeIcon(BitmapFactory.decodeResource(getResources(), largeIconRes));
+            }
+            // 색상(hex) 적용
+            String colorHex = config.getNotificationIconColor();
+            if (colorHex != null && !colorHex.isEmpty()) {
+                try { builder.setColor(Color.parseColor(colorHex)); } catch (IllegalArgumentException ignored) {}
+            }
+            if (contentIntent != null) builder.setContentIntent(contentIntent);
+
+            Notification notification = builder.build();
 
             if (mProvider != null) {
-                mProvider.onCommand(LocationProvider.CMD_SWITCH_MODE,
-                        LocationProvider.FOREGROUND_MODE);
+                mProvider.onCommand(LocationProvider.CMD_SWITCH_MODE, LocationProvider.FOREGROUND_MODE);
             }
             super.startForeground(NOTIFICATION_ID, notification);
             mIsInForeground = true;
         }
     }
+
+    // 헬퍼 함수들 추가 (클래스 내)
+    private int resolveDrawable(String name, String fallback) {
+        if (name != null && !name.isEmpty()) {
+            int resId = getResources().getIdentifier(name, "drawable", getPackageName());
+            if (resId != 0) return resId;
+        }
+        if (fallback != null) {
+            int resId = getResources().getIdentifier(fallback, "drawable", getPackageName());
+            if (resId != 0) return resId;
+        }
+        return getApplicationInfo().icon != 0 ? getApplicationInfo().icon : android.R.drawable.ic_menu_mylocation;
+    }
+    private String safe(String v, String def) { return (v == null || v.isEmpty()) ? def : v; }
+
 
     @Override
     public synchronized void stopForeground() {
